@@ -12,23 +12,31 @@ class DriverFactory {
      * @throws \Error If an invalid class has been specified via AMP_LOOP_DRIVER
      */
     public function create(): Driver {
-        if ($driver = $this->createDriverFromEnv()) {
-            return $driver;
+        $driver = (function () {
+            if ($driver = $this->createDriverFromEnv()) {
+                return $driver;
+            }
+
+            if (UvDriver::isSupported()) {
+                return new UvDriver;
+            }
+
+            if (EvDriver::isSupported()) {
+                return new EvDriver;
+            }
+
+            if (EventDriver::isSupported()) {
+                return new EventDriver;
+            }
+
+            return new NativeDriver;
+        })();
+
+        if (\getenv("AMP_DEBUG_TRACE_WATCHERS")) {
+            return new TracingDriver($driver);
         }
 
-        if (UvDriver::isSupported()) {
-            return new UvDriver;
-        }
-
-        if (EvDriver::isSupported()) {
-            return new EvDriver;
-        }
-
-        if (EventDriver::isSupported()) {
-            return new EventDriver;
-        }
-
-        return new NativeDriver;
+        return $driver;
     }
 
     private function createDriverFromEnv() {
