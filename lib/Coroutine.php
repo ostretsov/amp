@@ -2,6 +2,7 @@
 
 namespace Amp;
 
+use function Amp\Internal\formatStacktrace;
 use React\Promise\PromiseInterface as ReactPromise;
 
 /**
@@ -29,17 +30,27 @@ final class Coroutine implements Promise {
     /** @var mixed Promise success value when executing next coroutine step, null at all other times. */
     private $value;
 
+    /** @var string Timeout watcher for each step. */
+    private $timeoutWatcher;
+
+    /** @var string Debug trace. */
+    private $trace;
+
     /**
      * @param \Generator $generator
      */
     public function __construct(\Generator $generator) {
         $this->generator = $generator;
+        $this->timeoutWatcher = Loop::delay(1000, function () {
+            fwrite(STDERR, $this->trace . "\r\n");
+        });
 
         try {
             $yielded = $this->generator->current();
 
             if (!$yielded instanceof Promise) {
                 if (!$this->generator->valid()) {
+                    Loop::cancel($this->timeoutWatcher);
                     $this->resolve($this->generator->getReturn());
                     return;
                 }
@@ -47,6 +58,7 @@ final class Coroutine implements Promise {
                 $yielded = $this->transform($yielded);
             }
         } catch (\Throwable $exception) {
+            Loop::cancel($this->timeoutWatcher);
             $this->fail($exception);
             return;
         }
@@ -56,6 +68,11 @@ final class Coroutine implements Promise {
          * @param mixed           $value Value to be sent into the generator.
          */
         $this->onResolve = function ($exception, $value) {
+            // Reset the timeout
+            Loop::disable($this->timeoutWatcher);
+            Loop::enable($this->timeoutWatcher);
+            $this->trace = formatStacktrace(\debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS));
+
             $this->exception = $exception;
             $this->value = $value;
 
@@ -76,6 +93,7 @@ final class Coroutine implements Promise {
 
                     if (!$yielded instanceof Promise) {
                         if (!$this->generator->valid()) {
+                            Loop::cancel($this->timeoutWatcher);
                             $this->resolve($this->generator->getReturn());
                             $this->onResolve = null;
                             return;
@@ -90,6 +108,7 @@ final class Coroutine implements Promise {
 
                 $this->immediate = true;
             } catch (\Throwable $exception) {
+                Loop::cancel($this->timeoutWatcher);
                 $this->fail($exception);
                 $this->onResolve = null;
             } finally {
