@@ -44,6 +44,7 @@ final class Coroutine implements Promise {
         $this->timeoutWatcher = Loop::delay(1000, function () {
             fwrite(STDERR, $this->trace . "\r\n");
         });
+        $this->trace = formatStacktrace(\debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS));
 
         try {
             $yielded = $this->generator->current();
